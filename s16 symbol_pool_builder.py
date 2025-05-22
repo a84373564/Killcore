@@ -1,13 +1,11 @@
-# vS16 - 幣池建構器（可執行優化版）
 import os
 import json
 import requests
-from datetime import datetime
 
 API = "https://api.mexc.com/api/v3/ticker/24hr"
 TOP_N = 3
-EXCLUDE = ["PEPE"]  # 只排除垃圾幣
-MIN_VOLUME = 300_000  # 降低成交量門檻
+EXCLUDE = ["PEPE"]
+MIN_VOLUME = 300_000
 SAVE_PATH = "/mnt/data/killcore/symbol_pool.json"
 
 def get_top_symbols():
@@ -32,14 +30,9 @@ def get_top_symbols():
         pool.sort(key=lambda x: x[1], reverse=True)
         top_symbols = [s[0] for s in pool[:TOP_N]]
 
-        result = {
-            "timestamp": datetime.now().isoformat(),
-            "symbol_pool": top_symbols
-        }
-
-        os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
         with open(SAVE_PATH, "w") as f:
-            json.dump(result, f, indent=2)
+            json.dump(top_symbols, f, indent=2)
+
         print(f"[S16] 幣池已建構: {top_symbols}")
 
     except Exception as e:
