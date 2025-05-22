@@ -1,128 +1,149 @@
 import os
 import json
+import math
 import random
 import numpy as np
 
-def logic_run(strategy_name, day_data, capital, history):
-    price = day_data["close"]
-    if strategy_name == "trend_follow":
-        if len(history) >= 5:
-            ma = np.mean([h["close"] for h in history[-5:]])
-            if price > ma:
-                return "buy", 0.7
-    elif strategy_name == "mean_revert":
-        if len(history) >= 10:
-            ma = np.mean([h["close"] for h in history[-10:]])
-            if price < ma:
-                return "buy", 0.65
-    elif strategy_name == "breakout":
-        if len(history) >= 20:
-            high = max([h["high"] for h in history[-20:]])
-            if price > high:
-                return "buy", 0.75
-    return "", 0.0
+MODULE_PATH = "/mnt/data/killcore/v01_modules"
+PRICE_PATH = "/mnt/data/killcore/v02_prices"
+RESULT_PATH = "/mnt/data/killcore/sandbox_results"
+os.makedirs(RESULT_PATH, exist_ok=True)
 
-def enhanced_sandbox_engine(
-    modules_dir="/mnt/data/killcore/v01_modules",
-    prices_dir="/mnt/data/killcore/prices",
-    output_dir="/mnt/data/killcore/sandbox_results",
-    capital_file="/mnt/data/killcore/mexc_keys.json",
-    memory_path="/mnt/data/killcore/memory_bank.json",
-    log_path="/mnt/data/killcore/logs/sandbox_log.txt"
-):
-    os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+def load_price(symbol, days=100):
+    try:
+        with open(f"{PRICE_PATH}/{symbol}.json", "r") as f:
+            data = json.load(f)
+        return data[-days:]  # 取最後 N 天
+    except:
+        return []
 
-    with open(capital_file, "r") as cf:
-        capital_info = json.load(cf)
-        starting_capital = capital_info.get("capital", 100)
+def logic_run(strategy_name, params, data):
+    signal_history = []
+    for i in range(len(data)):
+        price = data[i]
+        signal = None
+        try:
+            if strategy_name == "trend_follow":
+                ma = np.mean(data[max(0, i - params["ma_window"]):i+1])
+                if ma > price * (1 + params["threshold"]):
+                    signal = "buy"
+            elif strategy_name == "mean_revert":
+                ma = np.mean(data[max(0, i - params["ma_window"]):i+1])
+                if price < ma - params["threshold"]:
+                    signal = "buy"
+            elif strategy_name == "breakout":
+                if i > params["break_window"]:
+                    highest = max(data[i - params["break_window"]:i])
+                    if price > highest * (1 + params["threshold"]):
+                        signal = "buy"
+            elif strategy_name == "volatility_spike":
+                if i > params["vol_window"]:
+                    std = np.std(data[i - params["vol_window"]:i])
+                    if std > params["spike_threshold"]:
+                        signal = "buy"
+            elif strategy_name == "resistance_rebound":
+                if i > params["res_window"]:
+                    local_max = max(data[i - params["res_window"]:i])
+                    if price < local_max * (1 - params["fail_ratio"]):
+                        signal = "buy"
+            elif strategy_name == "range_break":
+                if i > params["range_window"]:
+                    low = min(data[i - params["range_window"]:i])
+                    high = max(data[i - params["range_window"]:i])
+                    if (high - low) > 0 and (price - low)/(high - low) > params["confirm_ratio"]:
+                        signal = "buy"
+            elif strategy_name == "highlow_reversal":
+                if i > params["lookback"]:
+                    low = min(data[i - params["lookback"]:i])
+                    high = max(data[i - params["lookback"]:i])
+                    if price <= low * (1 + params["reversal_ratio"]):
+                        signal = "buy"
+            elif strategy_name == "volume_accumulation":
+                if i > params["vol_window"]:
+                    avg = np.mean(data[i - params["vol_window"]:i])
+                    if price > avg * (1 + params["threshold"]):
+                        signal = "buy"
+            elif strategy_name == "unilateral_trend":
+                if i > 10:
+                    past = data[i - 10:i]
+                    slope = (past[-1] - past[0]) / 10
+                    if slope > params["trend_strength"]:
+                        signal = "buy"
+            elif strategy_name == "mixed_warfare":
+                if i > params["long_ma"]:
+                    short_ma = np.mean(data[i - params["short_ma"]:i])
+                    long_ma = np.mean(data[i - params["long_ma"]:i])
+                    if short_ma > long_ma * (1 + params["bias"]):
+                        signal = "buy"
+        except:
+            signal = None
+        signal_history.append(signal)
+    return signal_history
 
-    memory = []
-    if os.path.exists(memory_path):
-        with open(memory_path, "r") as mf:
-            memory = json.load(mf)
+def evaluate_performance(data, signals):
+    capital = 1000
+    position = 0
+    entry_price = 0
+    trades = 0
+    pnl = []
+    for i in range(len(data)):
+        price = data[i]
+        signal = signals[i]
+        if signal == "buy" and position == 0:
+            entry_price = price
+            position = capital / price
+        elif position > 0 and signal != "buy":
+            capital = position * price
+            pnl.append(capital)
+            position = 0
+            trades += 1
+    if position > 0:
+        capital = position * data[-1]
+        pnl.append(capital)
+    profit = capital - 1000
+    returns = [p / 1000 - 1 for p in pnl] if pnl else [0]
+    win_rate = sum(1 for r in returns if r > 0) / len(returns) if returns else 0
+    max_drawdown = 0
+    peak = 1000
+    balance = 1000
+    for p in pnl:
+        peak = max(peak, p)
+        dd = (peak - p) / peak
+        max_drawdown = max(max_drawdown, dd)
+    sharpe = np.mean(returns) / np.std(returns) if len(returns) > 1 else 0
+    score = profit - max_drawdown * 5 + sharpe * 3 + win_rate * 2
+    return {
+        "profit": round(profit, 2),
+        "drawdown": round(max_drawdown, 4),
+        "sharpe": round(sharpe, 4),
+        "win_rate": round(win_rate, 4),
+        "score": round(score, 2),
+        "trades": trades,
+    }
 
-    summary = []
-    log_lines = []
-
-    for mod_file in os.listdir(modules_dir):
-        if not mod_file.endswith(".json"):
-            continue
-
-        with open(os.path.join(modules_dir, mod_file), "r") as mf:
-            mod = json.load(mf)
-
-        all_scores = []
-        for price_file in os.listdir(prices_dir):
-            if not price_file.endswith(".json"):
+def run_sandbox():
+    module_files = [f for f in os.listdir(MODULE_PATH) if f.endswith(".json")]
+    for f in module_files:
+        try:
+            with open(f"{MODULE_PATH}/{f}", "r") as mf:
+                mod = json.load(mf)
+            symbol = mod.get("symbol")
+            if not symbol:
                 continue
-
-            with open(os.path.join(prices_dir, price_file), "r") as pf:
-                prices = json.load(pf)
-
-            balance = starting_capital
-            history = []
-            win, loss = 0, 0
-            equity_curve = []
-
-            for day in prices:
-                signal, confidence = logic_run(mod["strategy_name"], day, balance, history)
-                if signal == "buy" and confidence >= 0.5:
-                    pct_change = random.uniform(-0.02, 0.05)
-                    profit = balance * pct_change
-                    balance += profit
-                    if profit > 0:
-                        win += 1
-                    else:
-                        loss += 1
-                equity_curve.append(balance)
-                history.append(day)
-
-            profit_pct = round((balance - starting_capital) / starting_capital * 100, 2)
-            win_rate = round(win / (win + loss + 1e-5), 2)
-            max_dd = round(1 - min(equity_curve) / max(equity_curve), 2)
-            sharpe = round((np.mean(equity_curve) - starting_capital) / (np.std(equity_curve) + 1e-5), 2)
-            score = profit_pct - max_dd * 5 + sharpe * 3 + win_rate * 2
-
-            result_data = {
-                "name": mod["name"],
-                "strategy_name": mod["strategy_name"],
-                "price_file": price_file,
-                "profit": profit_pct,
-                "win_rate": win_rate,
-                "drawdown": max_dd,
-                "sharpe": sharpe,
-                "score": round(score, 2),
-                "capital_used": starting_capital
-            }
-
-            out_path = os.path.join(output_dir, f"{mod['name']}__{price_file}")
-            with open(out_path, "w") as outf:
-                json.dump(result_data, outf, indent=2)
-
-            log_lines.append(f"[{mod['name']} - {price_file}] score={score:.2f} profit={profit_pct}% dd={max_dd} sharpe={sharpe}")
-
-            if score < -10 or max_dd > 0.5:
-                memory.append({
-                    "strategy_signature": mod.get("signature", mod["name"]),
-                    "strategy_name": mod["strategy_name"],
-                    "reason": "poor_score",
-                    "score": round(score, 2),
-                    "drawdown": max_dd
-                })
-
-        avg_score = round(np.mean(all_scores), 2) if all_scores else 0
-        summary.append((mod["name"], avg_score))
-
-    with open(log_path, "w") as logf:
-        logf.write("\n".join(log_lines))
-
-    memory = sorted(memory, key=lambda x: x.get("score", -999))
-    with open(memory_path, "w") as mf:
-        json.dump(memory[-300:], mf, indent=2)
-
-    return len(summary), output_dir
+            price_data = load_price(symbol)
+            if not price_data:
+                continue
+            prices = [float(p) for p in price_data]
+            signals = logic_run(mod["strategy_name"], mod["parameters"], prices)
+            result = evaluate_performance(prices, signals)
+            mod.update(result)
+            mod["log"] = signals
+            mod["history"] = prices
+            with open(f"{RESULT_PATH}/{f}", "w") as outf:
+                json.dump(mod, outf, indent=2)
+        except Exception as e:
+            print(f"模組 {f} 失敗：{e}")
 
 if __name__ == "__main__":
-    count, path = enhanced_sandbox_engine()
-    print(f"[v03] 多情境模擬完成，共處理模組：{count}，結果儲存於：{path}")
+    run_sandbox()
+    print("[v03] 沙盤模擬已完成，結果寫入 sandbox_results/")
