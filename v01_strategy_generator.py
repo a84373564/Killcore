@@ -83,7 +83,6 @@ def generate_strategies_v01_final(
     try:
         with open(memory_path, "r") as f:
             memory = json.load(f)
-        # === 限制最多記住 300 筆，保留最新的 ===
         if len(memory) > 300:
             memory = sorted(memory, key=lambda x: x.get("timestamp", ""), reverse=True)[:300]
         dead_signatures = {item["strategy_signature"] for item in memory}
@@ -111,7 +110,6 @@ def generate_strategies_v01_final(
             continue
         params = {k: random.choice(v) for k, v in param_space.items() if v}
 
-        # === 模組突變邏輯：隨機選一個參數，重新選一次 ===
         if params:
             mutate_key = random.choice(list(params.keys()))
             params[mutate_key] = random.choice(param_space[mutate_key])
@@ -153,6 +151,14 @@ def generate_strategies_v01_final(
             "resurrected_king": resurrected_king,
             "force_retry": from_retry
         }
+
+        # === 欄位完整性檢查，缺欄位不寫入 ===
+        required = ["name", "strategy_name", "parameters", "symbol"]
+        if not all(k in mod for k in required):
+            print(f"[v01] 模組欄位缺失，略過：{mod}")
+            attempts += 1
+            continue
+
         modules.append(mod)
         attempts += 1
 
