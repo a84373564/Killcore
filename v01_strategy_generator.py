@@ -1,5 +1,18 @@
-import os
+# === 防呆補丁：確保 symbol_pool 結構存在且非空 ===
 import json
+SYMBOL_POOL_PATH = "/mnt/data/killcore/symbol_pool.json"
+try:
+    with open(SYMBOL_POOL_PATH, "r") as f:
+        raw_pool = json.load(f)
+    SYMBOL_LIST = raw_pool.get("symbol_pool", [])
+    if not SYMBOL_LIST:
+        print("[v01] 幣池為空，跳過本輪。")
+        exit()
+except Exception as e:
+    print(f"[v01] 無法讀取幣池：{e}")
+    exit()
+
+import os
 import random
 
 def generate_strategies_v01_final(
@@ -7,9 +20,10 @@ def generate_strategies_v01_final(
     output_dir="/mnt/data/killcore/v01_modules",
     memory_path="/mnt/data/killcore/memory_bank.json",
     king_archive_path="/mnt/data/killcore/v10_king_archive.json",
-    symbol_pool_path="/mnt/data/killcore/symbol_pool.json"
+    symbol_list=None
 ):
     os.makedirs(output_dir, exist_ok=True)
+    symbols = symbol_list or []
 
     strategy_definitions = [
         ("A", "順勢追擊", "trend_follow", {
@@ -74,12 +88,6 @@ def generate_strategies_v01_final(
             king_archive = json.load(f)
     except:
         king_archive = []
-
-    try:
-        with open(symbol_pool_path, "r") as f:
-            symbols = json.load(f)
-    except:
-        symbols = ["BTCUSDT", "ETHUSDT", "SUIUSDT", "APTUSDT"]
 
     king_map = {item["signature"]: item.get("king_count", 1) for item in king_archive if "signature" in item}
     counters = {s[0]: 0 for s in strategy_definitions}
@@ -153,6 +161,7 @@ def generate_strategies_v01_final(
 
     return len(modules)
 
+
 if __name__ == "__main__":
-    count = generate_strategies_v01_final()
+    count = generate_strategies_v01_final(symbol_list=SYMBOL_LIST)
     print(f"[v01] 已產生模組數量：{count}（A～J 策略 + 多幣 + WDRR + 智慧補血）")
