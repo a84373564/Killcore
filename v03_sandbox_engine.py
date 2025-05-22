@@ -26,7 +26,7 @@ def enhanced_sandbox_engine(
     modules_dir="/mnt/data/killcore/v01_modules",
     prices_dir="/mnt/data/killcore/prices",
     output_dir="/mnt/data/killcore/sandbox_results",
-    capital_file="/mnt/data/hello/mexc_keys.json",
+    capital_file="/mnt/data/killcore/mexc_keys.json",
     memory_path="/mnt/data/killcore/memory_bank.json",
     log_path="/mnt/data/killcore/logs/sandbox_log.txt"
 ):
@@ -104,7 +104,7 @@ def enhanced_sandbox_engine(
 
             if score < -10 or max_dd > 0.5:
                 memory.append({
-                    "strategy_signature": mod["signature"],
+                    "strategy_signature": mod.get("signature", mod["name"]),
                     "strategy_name": mod["strategy_name"],
                     "reason": "poor_score",
                     "score": round(score, 2),
