@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Killcore v08｜最終版掛機巡邏流程（包含前置幣池檢查、自我修復、防多開）
+# Killcore v08｜最終版掛機巡邏流程（修正模組檔名、強化防呆）
 
 KILLCORE_LOG="/mnt/data/killcore/logs/killcore.log"
 LOCKFILE="/tmp/killcore_v08.lock"
@@ -28,7 +28,7 @@ while true; do
     log "==== 新一輪 Killcore Omega 進化流程開始 ===="
 
     # === S16：建構幣池 ===
-    python3 /mnt/data/killcore/s16_symbol_pool_builder.py
+    python3 /mnt/data/killcore/symbol_pool_builder.py
 
     # 防呆 3：幣池存在且非空
     if [ ! -f "$SYMBOL_POOL" ] || ! grep -q '[A-Z]USDT' "$SYMBOL_POOL"; then
@@ -37,11 +37,11 @@ while true; do
         continue
     fi
 
-    # === S17：評估強幣（幣別排行）===
-    python3 /mnt/data/killcore/s17_symbol_rank_evaluator.py
+    # === S17：評估強幣排行 ===
+    python3 /mnt/data/killcore/symbol_rank_evaluator.py
 
-    # === S18：排除死幣 ===
-    python3 /mnt/data/killcore/s18_dead_symbol_filter.py
+    # === S18：過濾黑名單 ===
+    python3 /mnt/data/killcore/dead_symbol_filter.py
 
     # === v01～v07 主流程 ===
     python3 /mnt/data/killcore/v01_strategy_generator.py
