@@ -8,21 +8,20 @@ def run_v05_core_engine(
     memory_path="/mnt/data/killcore/memory_bank.json",
     sandbox_dir="/mnt/data/killcore/sandbox_results"
 ):
-    # 讀取評分結果
     with open(scores_path, "r") as f:
         ranked = json.load(f)
 
-    # 只取第一名為新任王者
+    # 取得第一名為新王者
     new_king = ranked[0]
     king_name = new_king["name"]
     print(f"[v05] 王者模組為：{king_name}")
 
-    # 讀取該模組原始檔案
+    # 讀取王者模組原始檔案
     king_file = os.path.join(modules_dir, f"{king_name}.json")
     with open(king_file, "r") as kf:
         king_data = json.load(kf)
 
-    # 建立王者封存資料
+    # 建立王者封存內容
     king_record = {
         "name": king_name,
         "score": new_king["average_score"],
@@ -39,21 +38,28 @@ def run_v05_core_engine(
     with open(king_path, "w") as kf:
         json.dump(king_record, kf, indent=2)
 
-    # 建立記憶資料（其餘皆為淘汰者）
+    # 建立淘汰者記憶庫記錄
     losers = ranked[1:]
     memory_entries = []
     for loser in losers:
-        sample = loser["details"][0]
+        loser_name = loser["name"]
+        loser_file = os.path.join(modules_dir, f"{loser_name}.json")
+        try:
+            with open(loser_file, "r") as lf:
+                loser_data = json.load(lf)
+        except:
+            continue  # 模組檔案不存在就跳過
+
         memory_entries.append({
-            "strategy_signature": sample["signature"],
-            "strategy_name": sample["strategy_name"],
+            "strategy_signature": loser_data.get("signature"),
+            "strategy_name": loser_data.get("strategy_name"),
             "reason": "eliminated_by_v05",
             "score": round(loser["average_score"], 2),
-            "drawdown": sample["drawdown"],
+            "drawdown": loser["details"][0].get("drawdown", 0),
             "was_king": False
         })
 
-    # 合併並裁剪記憶庫（保留最新 300 筆）
+    # 裁剪記憶庫為最新 300 筆
     if os.path.exists(memory_path):
         with open(memory_path, "r") as mf:
             old_memory = json.load(mf)
@@ -66,11 +72,12 @@ def run_v05_core_engine(
     with open(memory_path, "w") as mf:
         json.dump(memory_combined, mf, indent=2)
 
-    # 清除模組（非王者）與所有模擬檔案
+    # 刪除非王者模組
     for fname in os.listdir(modules_dir):
         if not fname.startswith(king_name) and fname.endswith(".json"):
             os.remove(os.path.join(modules_dir, fname))
 
+    # 清空沙盤結果
     for sfile in os.listdir(sandbox_dir):
         os.remove(os.path.join(sandbox_dir, sfile))
 
