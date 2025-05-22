@@ -25,6 +25,10 @@ def generate_strategies_v01_final(
     os.makedirs(output_dir, exist_ok=True)
     symbols = symbol_list or []
 
+    if not symbols:
+        print("[v01] symbols 空值異常，強制跳過")
+        return 0
+
     strategy_definitions = [
         ("A", "順勢追擊", "trend_follow", {
             "ma_window": [5, 10, 20, 30],
@@ -79,6 +83,9 @@ def generate_strategies_v01_final(
     try:
         with open(memory_path, "r") as f:
             memory = json.load(f)
+        # === 限制最多記住 300 筆，保留最新的 ===
+        if len(memory) > 300:
+            memory = sorted(memory, key=lambda x: x.get("timestamp", ""), reverse=True)[:300]
         dead_signatures = {item["strategy_signature"] for item in memory}
     except:
         dead_signatures = set()
@@ -94,13 +101,24 @@ def generate_strategies_v01_final(
     seen = set()
     modules = []
 
-    while len(modules) < num_modules:
+    attempts = 0
+    max_attempts = 2000
+
+    while len(modules) < num_modules and attempts < max_attempts:
         code, label, name, param_space = random.choice(strategy_definitions)
         if not all(param_space.values()):
+            attempts += 1
             continue
-        params = {k: random.choice(v) for k, v in param_space.items()}
+        params = {k: random.choice(v) for k, v in param_space.items() if v}
+
+        # === 模組突變邏輯：隨機選一個參數，重新選一次 ===
+        if params:
+            mutate_key = random.choice(list(params.keys()))
+            params[mutate_key] = random.choice(param_space[mutate_key])
+
         sig = f"{name}_" + "_".join(str(v) for v in params.values())
         if sig in seen:
+            attempts += 1
             continue
 
         from_retry = False
@@ -113,10 +131,12 @@ def generate_strategies_v01_final(
                     from_retry = True
                     resurrected_king = True
                 else:
+                    attempts += 1
                     continue
             elif random.random() < 0.01:
                 from_retry = True
             else:
+                attempts += 1
                 continue
 
         seen.add(sig)
@@ -131,28 +151,10 @@ def generate_strategies_v01_final(
             "signature": sig,
             "from_retry": from_retry,
             "resurrected_king": resurrected_king,
-            "force_retry": False
+            "force_retry": from_retry
         }
         modules.append(mod)
-
-    while len(modules) < 500:
-        code, label, name, param_space = random.choice(strategy_definitions)
-        params = {k: random.choice(v) for k, v in param_space.items() if v}
-        sig = f"{name}_" + "_".join(str(v) for v in params.values())
-        counters[code] += 1
-        mod = {
-            "name": f"{code}-{counters[code]:03d}",
-            "strategy_name": name,
-            "strategy_label": label,
-            "parameters": params,
-            "symbol": random.choice(symbols),
-            "strategy_logic": "PLACEHOLDER",
-            "signature": sig,
-            "from_retry": True,
-            "resurrected_king": False,
-            "force_retry": True
-        }
-        modules.append(mod)
+        attempts += 1
 
     for mod in modules:
         file_path = os.path.join(output_dir, f"{mod['name']}.json")
@@ -160,7 +162,6 @@ def generate_strategies_v01_final(
             json.dump(mod, f, indent=2)
 
     return len(modules)
-
 
 if __name__ == "__main__":
     count = generate_strategies_v01_final(symbol_list=SYMBOL_LIST)
