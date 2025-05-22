@@ -1,52 +1,56 @@
-# [S17] 幣別強度排行器（根據 sandbox_results 分數統計）
-
 import os
 import json
 from collections import defaultdict
 
+POOL_PATH = "/mnt/data/killcore/symbol_pool.json"
 SANDBOX_DIR = "/mnt/data/killcore/sandbox_results"
-RANK_PATH = "/mnt/data/killcore/symbol_rank.json"
-MIN_MODULES = 3  # 至少幾隻模組才納入統計
-KING_BONUS = 1.2  # 王者模組加權倍數
+RANK_OUTPUT = "/mnt/data/killcore/symbol_rank.json"
 
-def evaluate_symbols():
-    scores = defaultdict(list)
+def load_symbol_pool():
+    try:
+        with open(POOL_PATH, "r") as f:
+            data = json.load(f)
+            return data.get("symbol_pool", [])
+    except:
+        return []
 
-    for fname in os.listdir(SANDBOX_DIR):
+def evaluate_symbols(symbols):
+    score_map = defaultdict(list)
+    file_list = os.listdir(SANDBOX_DIR)
+
+    for fname in file_list:
         if not fname.endswith(".json"):
             continue
         try:
             with open(os.path.join(SANDBOX_DIR, fname), "r") as f:
-                data = json.load(f)
-            symbol = data.get("symbol")
-            score = data.get("score", 0)
-            is_king = data.get("is_king", False)
-            if not symbol:
-                continue
-            if is_king:
-                score *= KING_BONUS
-            scores[symbol].append(score)
-        except Exception as e:
-            print(f"[S17] 無法解析 {fname}：{e}")
-
-    ranked = []
-    for sym, lst in scores.items():
-        if len(lst) < MIN_MODULES:
+                mod = json.load(f)
+            sym = mod.get("symbol")
+            score = mod.get("score")
+            if sym in symbols and isinstance(score, (int, float)):
+                score_map[sym].append(score)
+        except:
             continue
-        avg = sum(lst) / len(lst)
-        ranked.append((sym, avg))
 
-    ranked.sort(key=lambda x: x[1], reverse=True)
-    result = {
-        "symbol_ranking": [r[0] for r in ranked],
-        "symbol_scores": {r[0]: round(r[1], 3) for r in ranked},
+    result = {}
+    for sym in symbols:
+        scores = score_map.get(sym, [])
+        if scores:
+            result[sym] = round(sum(scores) / len(scores), 4)
+
+    sorted_syms = sorted(result.items(), key=lambda x: x[1], reverse=True)
+    ranked = [s[0] for s in sorted_syms]
+
+    output = {
+        "symbol_ranking": ranked,
+        "symbol_scores": result,
         "total_symbols": len(ranked)
     }
 
-    os.makedirs(os.path.dirname(RANK_PATH), exist_ok=True)
-    with open(RANK_PATH, "w") as f:
-        json.dump(result, f, indent=2)
+    with open(RANK_OUTPUT, "w") as f:
+        json.dump(output, f, indent=2)
+
     print(f"[S17] 幣別強度已排序，共 {len(ranked)} 幣別")
 
 if __name__ == "__main__":
-    evaluate_symbols()
+    syms = load_symbol_pool()
+    evaluate_symbols(syms)
