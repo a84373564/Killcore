@@ -3,60 +3,49 @@ import json
 import os
 
 KEY_PATH = "/mnt/data/killcore/mexc_keys.json"
-OUTPUT_PATH = "/mnt/data/killcore/symbol_pool.json"
-MIN_VOLUME_USDT = 500000  # 最低 24h 成交量門檻
-TOP_LIMIT = 3             # 取前幾名幣種
+SAVE_PATH = "/mnt/data/killcore/symbol_pool.json"
+TOP_LIMIT = 3
+MIN_VOLUME_USDT = 100000  # 可視情況調低來避免空結果
 
 def load_keys():
     try:
         with open(KEY_PATH, "r") as f:
             keys = json.load(f)
-        return keys["api_key"], keys["api_secret"]
+            return keys.get("api_key", ""), keys.get("api_secret", "")
     except Exception as e:
-        print(f"[!] 無法讀取金鑰：{e}")
-        return None, None
+        print(f"[S16] 無法讀取金鑰：{e}")
+        return "", ""
 
-def get_mexc_symbols():
-    url = "https://api.mexc.com/api/v3/exchangeInfo"
-    try:
-        resp = requests.get(url, timeout=10)
-        symbols = resp.json()["symbols"]
-        usdt_pairs = [s["symbol"] for s in symbols if s["quoteAsset"] == "USDT" and s["status"] == "ENABLED"]
-        return usdt_pairs
-    except Exception as e:
-        print(f"[!] 取得幣種清單失敗：{e}")
-        return []
-
-def get_ticker_data():
+def get_top_symbols():
     url = "https://api.mexc.com/api/v3/ticker/24hr"
     try:
         resp = requests.get(url, timeout=10)
-        return resp.json()
+        data = resp.json()
+        symbols = [
+            {
+                "symbol": item["symbol"],
+                "volume": float(item.get("quoteVolume", 0))
+            }
+            for item in data
+            if item["symbol"].endswith("USDT") and float(item.get("quoteVolume", 0)) > MIN_VOLUME_USDT
+        ]
+        sorted_symbols = sorted(symbols, key=lambda x: x["volume"], reverse=True)
+        return [s["symbol"] for s in sorted_symbols[:TOP_LIMIT]]
     except Exception as e:
-        print(f"[!] 取得成交量資料失敗：{e}")
+        print(f"[S16] 抓取幣種失敗：{e}")
         return []
 
-def build_symbol_pool():
-    all_symbols = get_mexc_symbols()
-    ticker_data = get_ticker_data()
-    volume_rank = []
-
-    for item in ticker_data:
-        symbol = item.get("symbol")
-        quote_volume = float(item.get("quoteVolume", 0))
-        if symbol in all_symbols and quote_volume >= MIN_VOLUME_USDT:
-            volume_rank.append((symbol, quote_volume))
-
-    # 按成交量排序，取前 N 名
-    sorted_top = sorted(volume_rank, key=lambda x: x[1], reverse=True)[:TOP_LIMIT]
-    top_symbols = [s[0] for s in sorted_top]
-
-    # 寫入 JSON 結果
-    with open(OUTPUT_PATH, "w") as f:
-        json.dump(top_symbols, f, indent=2)
-
-    print(f"[S16] 幣池已建構：{top_symbols}")
-    return top_symbols
+def save_pool(symbols):
+    os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
+    try:
+        with open(SAVE_PATH, "w") as f:
+            json.dump(symbols, f, indent=2)
+        print(f"[S16] 幣池已建構：{symbols}")
+    except Exception as e:
+        print(f"[S16] 儲存幣池失敗：{e}")
 
 if __name__ == "__main__":
-    build_symbol_pool()
+    top_symbols = get_top_symbols()
+    if not top_symbols:
+        print("[S16] 警告：幣池為空，請檢查 API 回應、網路、或 MIN_VOLUME_USDT 設定")
+    save_pool(top_symbols)
