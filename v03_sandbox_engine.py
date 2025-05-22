@@ -22,25 +22,43 @@ def logic_run(strategy_name, day_data, capital, history):
                 return "buy", 0.75
     return "", 0.0
 
-def run_logic_based_sandbox(modules_dir="/mnt/data/killcore/v01_modules",
-                            price_path="/mnt/data/killcore/prices/sim_price.json",
-                            output_dir="/mnt/data/killcore/sandbox_results",
-                            capital_file="/mnt/data/hello/mexc_keys.json"):
+def enhanced_sandbox_engine(
+    modules_dir="/mnt/data/killcore/v01_modules",
+    prices_dir="/mnt/data/killcore/prices",
+    output_dir="/mnt/data/killcore/sandbox_results",
+    capital_file="/mnt/data/hello/mexc_keys.json",
+    memory_path="/mnt/data/killcore/memory_bank.json",
+    log_path="/mnt/data/killcore/logs/sandbox_log.txt"
+):
     os.makedirs(output_dir, exist_ok=True)
-    with open(price_path, "r") as pf:
-        prices = json.load(pf)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
     with open(capital_file, "r") as cf:
         capital_info = json.load(cf)
         starting_capital = capital_info.get("capital", 100)
 
-    results = []
-    for filename in os.listdir(modules_dir):
-        if not filename.endswith(".json"):
+    memory = []
+    if os.path.exists(memory_path):
+        with open(memory_path, "r") as mf:
+            memory = json.load(mf)
+
+    summary = []
+    log_lines = []
+
+    for mod_file in os.listdir(modules_dir):
+        if not mod_file.endswith(".json"):
             continue
-        try:
-            with open(os.path.join(modules_dir, filename), "r") as mf:
-                mod = json.load(mf)
+
+        with open(os.path.join(modules_dir, mod_file), "r") as mf:
+            mod = json.load(mf)
+
+        all_scores = []
+        for price_file in os.listdir(prices_dir):
+            if not price_file.endswith(".json"):
+                continue
+
+            with open(os.path.join(prices_dir, price_file), "r") as pf:
+                prices = json.load(pf)
 
             balance = starting_capital
             history = []
@@ -49,7 +67,6 @@ def run_logic_based_sandbox(modules_dir="/mnt/data/killcore/v01_modules",
 
             for day in prices:
                 signal, confidence = logic_run(mod["strategy_name"], day, balance, history)
-
                 if signal == "buy" and confidence >= 0.5:
                     pct_change = random.uniform(-0.02, 0.05)
                     profit = balance * pct_change
@@ -58,7 +75,6 @@ def run_logic_based_sandbox(modules_dir="/mnt/data/killcore/v01_modules",
                         win += 1
                     else:
                         loss += 1
-
                 equity_curve.append(balance)
                 history.append(day)
 
@@ -66,28 +82,47 @@ def run_logic_based_sandbox(modules_dir="/mnt/data/killcore/v01_modules",
             win_rate = round(win / (win + loss + 1e-5), 2)
             max_dd = round(1 - min(equity_curve) / max(equity_curve), 2)
             sharpe = round((np.mean(equity_curve) - starting_capital) / (np.std(equity_curve) + 1e-5), 2)
+            score = profit_pct - max_dd * 5 + sharpe * 3 + win_rate * 2
 
             result_data = {
                 "name": mod["name"],
                 "strategy_name": mod["strategy_name"],
+                "price_file": price_file,
                 "profit": profit_pct,
                 "win_rate": win_rate,
                 "drawdown": max_dd,
                 "sharpe": sharpe,
-                "score": profit_pct - max_dd * 5 + sharpe * 3 + win_rate * 2,
+                "score": round(score, 2),
                 "capital_used": starting_capital
             }
 
-            output_path = os.path.join(output_dir, mod["name"] + ".json")
-            with open(output_path, "w") as outf:
+            out_path = os.path.join(output_dir, f"{mod['name']}__{price_file}")
+            with open(out_path, "w") as outf:
                 json.dump(result_data, outf, indent=2)
-            results.append(result_data)
 
-        except Exception:
-            continue
+            log_lines.append(f"[{mod['name']} - {price_file}] score={score:.2f} profit={profit_pct}% dd={max_dd} sharpe={sharpe}")
 
-    return len(results), output_dir
+            if score < -10 or max_dd > 0.5:
+                memory.append({
+                    "strategy_signature": mod["signature"],
+                    "strategy_name": mod["strategy_name"],
+                    "reason": "poor_score",
+                    "score": round(score, 2),
+                    "drawdown": max_dd
+                })
+
+        avg_score = round(np.mean(all_scores), 2) if all_scores else 0
+        summary.append((mod["name"], avg_score))
+
+    with open(log_path, "w") as logf:
+        logf.write("\n".join(log_lines))
+
+    memory = sorted(memory, key=lambda x: x.get("score", -999))
+    with open(memory_path, "w") as mf:
+        json.dump(memory[-300:], mf, indent=2)
+
+    return len(summary), output_dir
 
 if __name__ == "__main__":
-    count, path = run_logic_based_sandbox()
-    print(f"[v03] 成功模擬：{count} 隻模組，輸出於：{path}")
+    count, path = enhanced_sandbox_engine()
+    print(f"[v03] 多情境模擬完成，共處理模組：{count}，結果儲存於：{path}")
