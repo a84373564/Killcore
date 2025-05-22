@@ -2,57 +2,71 @@ import os
 import json
 import random
 
-def generate_strategies_v01_retryable(
+def generate_strategies_v01_final(
     num_modules=500,
     output_dir="/mnt/data/killcore/v01_modules",
     memory_path="/mnt/data/killcore/memory_bank.json"
 ):
     os.makedirs(output_dir, exist_ok=True)
 
-    # 策略模板池
-    strategy_templates = [
-        {
-            "name": "trend_follow",
-            "logic": "if ma > price: signal = 'buy'",
-            "param_space": {
-                "ma_window": [5, 10, 20, 30],
-                "threshold": [0.01, 0.02, 0.03]
-            }
-        },
-        {
-            "name": "mean_revert",
-            "logic": "if price < ma - threshold: signal = 'buy'",
-            "param_space": {
-                "ma_window": [10, 20],
-                "threshold": [0.02, 0.03, 0.04]
-            }
-        },
-        {
-            "name": "breakout",
-            "logic": "if price > highest_recent: signal = 'buy'",
-            "param_space": {
-                "break_window": [20, 30, 40],
-                "threshold": [0.01, 0.015]
-            }
-        }
+    # 策略代號、中文簡稱、英文識別
+    strategy_definitions = [
+        ("A", "順勢追擊", "trend_follow", {
+            "ma_window": [5, 10, 20, 30],
+            "threshold": [0.01, 0.02, 0.03]
+        }),
+        ("B", "均值回歸", "mean_revert", {
+            "ma_window": [10, 20],
+            "threshold": [0.02, 0.03, 0.04]
+        }),
+        ("C", "突破進攻", "breakout", {
+            "break_window": [20, 30, 40],
+            "threshold": [0.01, 0.015]
+        }),
+        ("D", "波動爆發", "volatility_spike", {
+            "vol_window": [10, 20],
+            "spike_threshold": [1.5, 2.0]
+        }),
+        ("E", "拉回佈局", "pullback_buy", {
+            "pullback_pct": [0.03, 0.05],
+            "trend_window": [10, 20]
+        }),
+        ("F", "動能疊加", "momentum_stack", {
+            "momentum_window": [5, 10],
+            "confirm_count": [2, 3]
+        }),
+        ("G", "均線交叉", "crossover_ma", {
+            "fast": [5, 10],
+            "slow": [20, 30]
+        }),
+        ("H", "價量共振", "volume_expansion", {
+            "vol_window": [5, 10],
+            "volume_ratio": [1.5, 2.0]
+        }),
+        ("I", "RSI 背離", "rsi_divergence", {
+            "rsi_period": [14],
+            "div_threshold": [5, 10]
+        }),
+        ("J", "布林爆發", "boll_squeeze", {
+            "boll_window": [20],
+            "squeeze_threshold": [0.02, 0.03]
+        })
     ]
 
-    # 判斷是否給重生機會
+    # 判斷是否允許重試
     def allow_retry(signature, memory):
         related = [m for m in memory if m["strategy_signature"] == signature]
         if not related:
-            return True  # 沒死過，當然可以生成
-
-        retry_chance = 0.01  # 基本死法重試率
+            return True, False
+        retry_chance = 0.01
         for entry in related:
             if entry.get("was_king"):
                 if entry.get("king_count", 1) >= 2:
-                    retry_chance = max(retry_chance, 0.5)  # 多次王者給 50%
+                    retry_chance = max(retry_chance, 0.5)
                 else:
-                    retry_chance = max(retry_chance, 0.05)  # 一次王者給 5%
-        return random.random() < retry_chance
+                    retry_chance = max(retry_chance, 0.05)
+        return random.random() < retry_chance, True
 
-    # 載入記憶資料
     try:
         with open(memory_path, "r") as f:
             memory = json.load(f)
@@ -60,28 +74,29 @@ def generate_strategies_v01_retryable(
         memory = []
 
     past_failures = {item["strategy_signature"] for item in memory}
-
-    counts = {"trend_follow": 0, "mean_revert": 0, "breakout": 0}
+    counts = {code: 0 for code, _, _, _ in strategy_definitions}
     generated = 0
 
-    # 開始生成模組
-    for i in range(num_modules * 4):  # 預留足夠嘗試次數
-        template = random.choice(strategy_templates)
-        params = {k: random.choice(v) for k, v in template["param_space"].items()}
-        sig_parts = [template["name"]] + [str(v) for v in params.values()]
+    for _ in range(num_modules * 5):
+        code, cname, sname, param_space = random.choice(strategy_definitions)
+        params = {k: random.choice(v) for k, v in param_space.items()}
+        sig_parts = [sname] + [str(v) for v in params.values()]
         signature = "_".join(sig_parts)
 
-        # 若為死亡組合，檢查是否允許重試
-        if signature in past_failures and not allow_retry(signature, memory):
-            continue
+        is_retry_allowed, from_retry = True, False
+        if signature in past_failures:
+            is_retry_allowed, from_retry = allow_retry(signature, memory)
+            if not is_retry_allowed:
+                continue
 
-        counts[template["name"]] += 1
+        counts[code] += 1
         mod = {
-            "name": f"mod_{template['name']}_{counts[template['name']]:03d}",
-            "strategy_name": template["name"],
+            "name": f"{code}-{counts[code]}",
+            "strategy_name": sname,
+            "strategy_label": cname,
             "parameters": params,
-            "strategy_logic": template["logic"],
             "signature": signature,
+            "from_retry": from_retry,
             "run": "def run(data, capital, history): return {'signal': 'buy', 'confidence': 0.8}"
         }
 
@@ -95,7 +110,6 @@ def generate_strategies_v01_retryable(
 
     return generated
 
-# 主程式入口
 if __name__ == "__main__":
-    count = generate_strategies_v01_retryable()
+    count = generate_strategies_v01_final()
     print(f"[v01] 已產生模組數量：{count}")
