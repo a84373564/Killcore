@@ -1,77 +1,65 @@
+# [v04] 評分規則模組｜計算總分，回傳排序結果（防爆版）
+
 import os
 import json
 
-def evaluate_modules_v04(
-    sandbox_dir="/mnt/data/killcore/sandbox_results",
-    output_path="/mnt/data/killcore/module_scores.json",
-    log_path="/mnt/data/killcore/logs/evaluation_log.txt",
-    weights=None
-):
-    if weights is None:
-        weights = {
-            "profit": 1,
-            "drawdown": -5,
-            "sharpe": 3,
-            "win_rate": 2
-        }
+SANDBOX_DIR = "/mnt/data/killcore/sandbox_results"
+OUTPUT_PATH = "/mnt/data/killcore/module_scores.json"
 
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+WEIGHTS = {
+    "profit": 3.0,
+    "sharpe": 2.0,
+    "win_rate": 1.5,
+    "drawdown": -2.0
+}
 
-    module_scores = {}
-    for fname in os.listdir(sandbox_dir):
+def evaluate_modules_v04():
+    results = []
+    for fname in os.listdir(SANDBOX_DIR):
         if not fname.endswith(".json"):
             continue
+        fpath = os.path.join(SANDBOX_DIR, fname)
+        try:
+            with open(fpath, "r") as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"[v04] 讀取錯誤：{fname} → {e}")
+            continue
 
-        full_path = os.path.join(sandbox_dir, fname)
-        with open(full_path, "r") as f:
-            data = json.load(f)
+        # 防爆補丁：缺欄位直接跳過
+        try:
+            name = data["name"]
+            profit = data.get("profit", 0)
+            sharpe = data.get("sharpe", 0)
+            win_rate = data.get("win_rate", 0)
+            drawdown = data.get("drawdown", 0)
+        except KeyError as e:
+            print(f"[v04] 模組缺欄位 {e}，跳過 {fname}")
+            continue
 
-        name = data["name"]
-        if name not in module_scores:
-            module_scores[name] = {
-                "scores": [],
-                "details": []
-            }
-
+        # 計算分數
         score = (
-            data.get("profit", 0) * weights["profit"] +
-            data.get("drawdown", 0) * weights["drawdown"] +
-            data.get("sharpe", 0) * weights["sharpe"] +
-            data.get("win_rate", 0) * weights["win_rate"]
+            profit * WEIGHTS["profit"] +
+            sharpe * WEIGHTS["sharpe"] +
+            win_rate * WEIGHTS["win_rate"] +
+            drawdown * WEIGHTS["drawdown"]
         )
 
-        module_scores[name]["scores"].append(score)
-        module_scores[name]["details"].append(data)
-
-    ranked_modules = []
-    log_lines = []
-
-    for name, info in module_scores.items():
-        all_scores = info["scores"]
-        avg_score = round(sum(all_scores) / len(all_scores), 2)
-        max_score = round(max(all_scores), 2)
-        total_tests = len(all_scores)
-
-        ranked_modules.append({
+        results.append({
             "name": name,
-            "average_score": avg_score,
-            "max_score": max_score,
-            "tests_run": total_tests,
-            "details": info["details"]
+            "score": round(score, 4),
+            "profit": profit,
+            "sharpe": sharpe,
+            "win_rate": win_rate,
+            "drawdown": drawdown
         })
 
-        log_lines.append(f"{name}: avg={avg_score}, max={max_score}, runs={total_tests}")
-
-    ranked_modules = sorted(ranked_modules, key=lambda x: x["average_score"], reverse=True)
-
-    with open(output_path, "w") as f:
-        json.dump(ranked_modules, f, indent=2)
-
-    with open(log_path, "w") as lf:
-        lf.write("\n".join(log_lines))
-
-    return ranked_modules
+    # 依分數排序
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results
 
 if __name__ == "__main__":
     results = evaluate_modules_v04()
-    print(f"[v04] 評分完成，模組數量：{len(results)}，已儲存至 module_scores.json")
+    with open(OUTPUT_PATH, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"[v04] 評分完成，總計 {len(results)} 模組已排序")
