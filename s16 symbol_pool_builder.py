@@ -1,4 +1,4 @@
-# vS16 - 幣池建構器（最無敵版本）
+# vS16 - 幣池建構器（可執行優化版）
 import os
 import json
 import requests
@@ -6,8 +6,8 @@ from datetime import datetime
 
 API = "https://api.mexc.com/api/v3/ticker/24hr"
 TOP_N = 3
-EXCLUDE = ["USDT", "BTC", "ETH", "PEPE"]
-MIN_VOLUME = 1_000_000  # 最低量能 USDT
+EXCLUDE = ["PEPE"]  # 只排除垃圾幣
+MIN_VOLUME = 300_000  # 降低成交量門檻
 SAVE_PATH = "/mnt/data/killcore/symbol_pool.json"
 
 def get_top_symbols():
