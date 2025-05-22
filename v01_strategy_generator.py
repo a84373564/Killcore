@@ -3,6 +3,7 @@ import json
 import random
 from datetime import datetime
 
+# 策略模板池
 strategy_templates = [
     {
         "name": "trend_follow",
@@ -30,11 +31,13 @@ strategy_templates = [
     }
 ]
 
+# 主生成器函數
 def generate_killcore_strategies(num_modules=500,
                                   output_dir="/mnt/data/killcore/v01_modules",
                                   memory_path="/mnt/data/killcore/memory_bank.json",
                                   lineage_prefix="GEN"):
     os.makedirs(output_dir, exist_ok=True)
+
     try:
         with open(memory_path, "r") as f:
             memory = json.load(f)
@@ -43,7 +46,7 @@ def generate_killcore_strategies(num_modules=500,
         past_failures = set()
 
     generated = 0
-    for i in range(num_modules * 2):
+    for i in range(num_modules * 2):  # 預留空間避免因避死生成不足
         template = random.choice(strategy_templates)
         params = {k: random.choice(v) for k, v in template["param_space"].items()}
         sig_parts = [template["name"]] + [str(v) for v in params.values()]
@@ -66,7 +69,13 @@ def generate_killcore_strategies(num_modules=500,
         with open(path, "w") as f:
             json.dump(mod, f, indent=2)
         generated += 1
+
         if generated >= num_modules:
             break
 
-    return generated
+    return generated, output_dir
+
+# 主程式執行區
+if __name__ == "__main__":
+    count, path = generate_killcore_strategies()
+    print(f"[v01] 已產生模組數量：{count}，儲存路徑：{path}")
