@@ -12,16 +12,28 @@ log() {
     echo "[v08] $(date '+%Y-%m-%d %H:%M:%S') $1" >> "$KILLCORE_LOG"
 }
 
-# 防呆 1：已有背景巡邏進程存在，禁止重複啟動
-if [ -f "$LOCKFILE" ] && kill -0 "$(cat $LOCKFILE)" 2>/dev/null; then
-    echo "[v08] 檢測到已有掛機進程 (PID $(cat $LOCKFILE))，本次不再重啟。"
-    exit 1
+# 防呆 0：進程假死檢測與修正
+if [ -f "$LOCKFILE" ]; then
+    PID=$(cat "$LOCKFILE")
+    if ps -p "$PID" > /dev/null 2>&1; then
+        CMD=$(ps -p "$PID" -o cmd=)
+        if [[ "$CMD" == "bash" ]]; then
+            echo "[v08] 偵測到假死 bash，清除 lock 重啟。"
+            rm -f "$LOCKFILE"
+        else
+            echo "[v08] 檢測到已有掛機進程 (PID $PID)，本次不再重啟。"
+            exit 1
+        fi
+    else
+        echo "[v08] lock 存在但無對應進程，清除 lock。"
+        rm -f "$LOCKFILE"
+    fi
 fi
 
 # 寫入當前腳本 PID
 echo $$ > "$LOCKFILE"
 
-# 防呆 2：錯誤時自我重啟
+# 防呆 1：錯誤時自我重啟
 trap 'log "異常中止，重啟掛機流程"; exec $0' ERR
 
 while true; do
@@ -30,7 +42,7 @@ while true; do
     # === S16：建構幣池 ===
     python3 /mnt/data/killcore/symbol_pool_builder.py
 
-    # 防呆 3：幣池存在且非空
+    # 防呆 2：幣池存在且非空
     if [ ! -f "$SYMBOL_POOL" ] || ! grep -q '[A-Z]USDT' "$SYMBOL_POOL"; then
         log "[v08] 幣池為空，略過此輪流程"
         sleep 60
