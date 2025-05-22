@@ -1,51 +1,49 @@
-import requests
-import json
+# vS16 - 幣池建構器（最無敵版本）
 import os
+import json
+import requests
+from datetime import datetime
 
-KEY_PATH = "/mnt/data/killcore/mexc_keys.json"
+API = "https://api.mexc.com/api/v3/ticker/24hr"
+TOP_N = 3
+EXCLUDE = ["USDT", "BTC", "ETH", "PEPE"]
+MIN_VOLUME = 1_000_000  # 最低量能 USDT
 SAVE_PATH = "/mnt/data/killcore/symbol_pool.json"
-TOP_LIMIT = 3
-MIN_VOLUME_USDT = 100000  # 可視情況調低來避免空結果
-
-def load_keys():
-    try:
-        with open(KEY_PATH, "r") as f:
-            keys = json.load(f)
-            return keys.get("api_key", ""), keys.get("api_secret", "")
-    except Exception as e:
-        print(f"[S16] 無法讀取金鑰：{e}")
-        return "", ""
 
 def get_top_symbols():
-    url = "https://api.mexc.com/api/v3/ticker/24hr"
     try:
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        symbols = [
-            {
-                "symbol": item["symbol"],
-                "volume": float(item.get("quoteVolume", 0))
-            }
-            for item in data
-            if item["symbol"].endswith("USDT") and float(item.get("quoteVolume", 0)) > MIN_VOLUME_USDT
-        ]
-        sorted_symbols = sorted(symbols, key=lambda x: x["volume"], reverse=True)
-        return [s["symbol"] for s in sorted_symbols[:TOP_LIMIT]]
-    except Exception as e:
-        print(f"[S16] 抓取幣種失敗：{e}")
-        return []
+        res = requests.get(API, timeout=10)
+        data = res.json()
+        pool = []
 
-def save_pool(symbols):
-    os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
-    try:
+        for item in data:
+            sym = item["symbol"]
+            vol = float(item.get("quoteVolume", 0))
+
+            if not sym.endswith("USDT"):
+                continue
+            if any(ex in sym for ex in EXCLUDE):
+                continue
+            if vol < MIN_VOLUME:
+                continue
+
+            pool.append((sym, vol))
+
+        pool.sort(key=lambda x: x[1], reverse=True)
+        top_symbols = [s[0] for s in pool[:TOP_N]]
+
+        result = {
+            "timestamp": datetime.now().isoformat(),
+            "symbol_pool": top_symbols
+        }
+
+        os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
         with open(SAVE_PATH, "w") as f:
-            json.dump(symbols, f, indent=2)
-        print(f"[S16] 幣池已建構：{symbols}")
+            json.dump(result, f, indent=2)
+        print(f"[S16] 幣池已建構: {top_symbols}")
+
     except Exception as e:
-        print(f"[S16] 儲存幣池失敗：{e}")
+        print(f"[S16] 錯誤：{e}")
 
 if __name__ == "__main__":
-    top_symbols = get_top_symbols()
-    if not top_symbols:
-        print("[S16] 警告：幣池為空，請檢查 API 回應、網路、或 MIN_VOLUME_USDT 設定")
-    save_pool(top_symbols)
+    get_top_symbols()
